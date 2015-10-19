@@ -62,7 +62,7 @@ function install_elk() {
     # Find the line that specifies network.host, uncomment it,
     # and replace its value with "localhost" so it looks like * network.host: localhost *
     echo "edit a configuration file for elasticsearch"
-    sudo sed -i 's/network.host:.*/network.host: localhost/g' /etc/elasticsearch/elasticsearch.yml
+    sudo sed -i 's/.*network.host:.*/network.host: localhost/g' /etc/elasticsearch/elasticsearch.yml
     ;;
 
   4)
@@ -73,12 +73,12 @@ function install_elk() {
     sleep 5
     ;;
 
-  4)
+  5)
     echo "Now verify that elasticsearch can be reached by running curl -i localhost:9200"
     curl http://localhost:9200
     ;;
 
-  5)
+  6)
     echo "==================== Authenticating Forwarders =========================="
     # Since we are going to use Logstash Forwarder to ship logs from our Servers to our Logstash Server,
     # we need to create an SSL certificate and key pair. The certificate is used by the Logstash Forwarder
@@ -88,24 +88,24 @@ function install_elk() {
     sudo mkdir -p /etc/pki/tls/private
     ;;
 
-  6)
+  7)
     # you will have to add your Logstash Server's private IP address to the subjectAltName (SAN) field
     # of the SSL certificate that we are about to generate. To do so, open the OpenSSL configuration file
     LOGSTASH_SERVER_PRIVATE_IP=$(/sbin/ifconfig eth0 | grep 'inet addr:' | cut -d: -f2 | awk '{ print $1}')
-    sudo sed -i '/\[ v3_ca \]/a subjectAltName = IP:'$LOGSTASH_SERVER_PRIVATE_IP'"' /etc/ssl/openssl.cnf
+    sudo sed -i '/\[ v3_ca \]/a subjectAltName = IP: '$LOGSTASH_SERVER_PRIVATE_IP'' /etc/ssl/openssl.cnf
     ;;
 
-  7)
+  8)
     echo "Now generate the SSL certificate and private key in /etc/pki/tls/"
     pushd /etc/pki/tls
-    sudo openssl req -config /etc/ssl/openssl.cnf -x509 -days 365 -batch -nodes -newkey rsa:2048 -keyout logstash-forwarder.key -out logstash-forwarder.crt
+    sudo openssl req -config /etc/ssl/openssl.cnf -x509 -days 3650 -batch -nodes -newkey rsa:2048 -keyout private/logstash-forwarder.key -out certs/logstash-forwarder.crt
     popd
     ;;
 
-  5)
+  9)
     echo "====================== Install LogStash =========================="
     echo "compile the logstash source list"
-    echo "deb http://packages.elasticsearch.org/logstash/${LOGSTASH_VERSION}/debian stable main" | sudo tee /etc/apt/sources.list.d/logstash.list
+    echo "deb http://packages.elasticsearch.org/logstash/${LOGSTASH_VERSION}/debian stable main" | sudo tee /etc/apt/sources.list.d/elk.list
     echo "update the packages"
     sudo apt-get update
     echo "install logstash"
@@ -114,7 +114,7 @@ function install_elk() {
     # sudo dpkg -i logstash_${LOGSTASH_VERSION}_all.deb
     ;;
 
-  6)
+  10)
     # Logstash configuration files are in the JSON-format, and reside in /etc/logstash/conf.d.
     # The configuration consists of three sections: inputs, filters, and outputs.
     echo "==================== LogStash Configuration ======================"
@@ -131,7 +131,7 @@ function install_elk() {
     }' >> /etc/logstash/conf.d/01-lumberjack-input.conf"
     ;;
 
-  7)
+  11)
     echo "add a filter for syslog messages:"
     # This filter looks for logs that are labeled as "syslog" type (by a Logstash Forwarder), and it will \n
     # try to use "grok" to parse incoming syslog logs to make it structured and query-able"
@@ -150,7 +150,7 @@ function install_elk() {
     }' >> /etc/logstash/conf.d/10-syslog.conf"
     ;;
 
-  8)
+  12)
     echo "create a output configuration file called 30-lumberjack-output.conf"
     # configures Logstash to store the logs in Elasticsearch"
     sudo bash -c "echo 'output {
@@ -159,53 +159,70 @@ function install_elk() {
     }' >> /etc/logstash/conf.d/30-lumberjack-output.conf"
     ;;
 
-  9)
+  13)
+    echo "Restart logstash service"
+    sudo service logstash restart
+    ;;
+
+  14)
+    echo "Make sure that things are fine from logstash perspecitive"
+    # curl -i localhost:5000. If you get curl: (52) Empty reply from server, then it works.
+    # /opt/logstash/bin/logstash -f /etc/logstash/conf.d/01-lumberjack-input.conf -t
+    # Configuration OK
+    # /opt/logstash/bin/logstash -f /etc/logstash/conf.d/10-syslog.conf -t
+    # Configuration OK
+    # /opt/logstash/bin/logstash -f /etc/logstash/conf.d/30-lumberjack-output.conf -t
+    # Configuration OK
+    # sudo tail -f /var/log/logstash/logstash.log
+    ;;
+
+  15)
     echo "======================= Install Kibana =========================="
     echo "Download Kibana to your home directory with the following command"
     wget https://download.elasticsearch.org/kibana/kibana/kibana-${KIBANA_VERSION}-linux-x64.tar.gz
     tar xvf kibana-*.tar.gz
     ;;
 
-  10)
+  16)
     echo "Make Kibana to be accessible to the localhost only. We will use nginx reverse proxy to make it accessbile through external ip"
     sed -i 's/host: "0.0.0.0"/host: "localhost"/' kibana-4*/config/kibana.yml
     ;;
 
-  11)
+  17)
     echo " copy the Kibana files to a more appropriate location."
     sudo mkdir -p /opt/kibana
     sudo cp -R kibana-4*/* /opt/kibana/
     ;;
 
-  12)
+  18)
     # Kibana can be started by running /opt/kibana/bin/kibana, but we want it to run as a service.
     echo "Download a Kibana init script with this command"
     cd /etc/init.d && sudo wget https://gist.githubusercontent.com/thisismitch/8b15ac909aed214ad04a/raw/bce61d85643c2dcdfbc2728c55a41dab444dca20/kibana4
     ;;
 
-  13)
+  19)
     echo "enable the Kibana service, and start it"
     sudo chmod +x /etc/init.d/kibana4
     sudo update-rc.d kibana4 defaults 96 9
     sudo service kibana4 start
     ;;
 
-  14)
+  20)
     # Because we configured Kibana to listen on localhost, we must set up a reverse proxy to allow external access to it. We will use Nginx for this purpose.
     echo " =================== Install and configure nginx ==================="
-    sudo apt-get install nginx apache2-utils
+    sudo apt-get install -y nginx apache2-utils
     ;;
 
-  19)
+  21)
     # Use htpasswd to create an admin user, called "tahir" (you should use another name), that can access the Kibana web interface:
     sudo htpasswd -cb /etc/nginx/htpasswd.users tahir tahir
     ;;
 
-  20)
+  22)
     # configures Nginx to direct your server's HTTP traffic to the Kibana application, which is listening on localhost:5601.
     # Also, Nginx will use the htpasswd.users file, that we created earlier, and require basic authentication
     echo "Configure nginx"
-    server_name=$(eval `host`)
+    server_name=$(hostname)
     echo "server_name=$server_name"
     sudo bash -c "echo 'server {
     listen 80;
@@ -226,8 +243,9 @@ function install_elk() {
     }' > /etc/nginx/sites-available/default"
     ;;
 
-  21)
+  23)
     echo "Restarting nginx"
+    sudo service nginx restart
     ;;
 
   *)

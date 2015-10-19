@@ -1,0 +1,99 @@
+#!/bin/bash -e
+
+LOGSTASH_SERVER_USER=ubuntu
+LOGSTASH_SERVER_IP=10.10.1.2
+SSL_CERTIFICATE=/etc/pki/tls/certs/logstash-forwarder.crt
+
+TEMP=`getopt -o i:R:E:h --long lsip:,step_st:,step_ed:,help -n 'setup_logstash_forwarder.sh' -- "$@"`
+eval set -- "$TEMP"
+while true ; do
+  case "$1" in
+     -i| --lsip) LOGSTASH_SERVER_IP=$2; shift 2 ;;
+     -R| --step_st ) STEP_ST="$2"; shift 2 ;;
+     -E| --step_ed ) STEP_ED="$2"; shift 2 ;;
+     -h| --help ) setup_logstash_forwarder_help; exit 0; shift;;
+     --) shift ; break ;;
+     *) exit 1 ;;
+  esac
+done
+
+function install_elk() {
+  local step=$1
+  case "$step" in
+
+  1)
+    echo "======================== Install logstash forwarder ======================"
+    echo "create the Logstash Forwarder source list"
+    echo 'deb http://packages.elasticsearch.org/logstashforwarder/debian stable main' | sudo tee /etc/apt/sources.list.d/logstashforwarder.list
+    ;;
+
+  2)
+    # It also uses the same GPG key as Elasticsearch.
+    echo "Install GPG key"
+    wget -O - http://packages.elasticsearch.org/GPG-KEY-elasticsearch | sudo apt-key add -
+    echo "Install logstash forwarder"
+    sudo apt-get update
+    sudo apt-get install logstash-forwarder
+    ;;
+
+  3)
+    echo "=============== Configure Logstash forwarder ================= "
+    echo "Copy the certificate from logstash server."
+    scp $LOGSTASH_SERVER_USER@$LOGSTASH_SERVER_IP:/etc/pki/tls/certs/logstash-forwarder.crt /tmp
+    sudo mkdir -p /etc/pki/tls/certs
+    sudo cp /tmp/logstash-forwarder.crt /etc/pki/tls/certs/
+    ;;
+
+  4)
+    sudo bash -c "echo ' {
+    \"network\": {
+    # A list of downstream servers listening for our messages.
+    # logstash-forwarder will pick one at random and only switch if
+    # the selected one appears to be dead or unresponsive
+    \"servers\": [ \"$LOGSTASH_SERVER_IP:5000\" ],
+
+    # The path to your trusted ssl CA file. This is used
+    # to authenticate your downstream server.
+    \"ssl ca\": \"/etc/pki/tls/certs/logstash-forwarder.crt\",
+
+    # Network timeout in seconds. This is most important for
+    # logstash-forwarder determining whether to stop waiting for an
+    # acknowledgement from the downstream server. If an timeout is reached,
+    # logstash-forwarder will assume the connection or server is bad and
+    # will connect to a server chosen at random from the servers list.
+    \"timeout\": 15
+  },
+
+  # The list of files configurations
+  \"files\": [
+    {
+      \"paths\": [
+        \"/var/log/syslog\",
+        \"/var/log/auth.log\"
+       ],
+      \"fields\": { \"type\": \"syslog\" }
+    }
+  ]
+  }' > /etc/logstash-forwarder.conf"
+    ;;
+
+  5)
+    echo "Restart logstash"
+    sudo service logstash-forwarder restart
+    ;;
+
+  6)
+    # sudo tail -f /var/log/logstash-forwarder/logstash-forwarder.err
+    ;;
+  *)
+    echo "NOP - $step"
+  ;;
+  esac
+}
+
+for STEP in `seq ${STEP_ST} ${STEP_ED}`; do
+  printf "\n    *** Starting STEP $STEP *** \n"
+  pushd ~/
+  install_elk $STEP
+  popd
+done

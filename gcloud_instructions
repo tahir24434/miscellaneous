@@ -1,0 +1,3 @@
+gcloud compute instances create tahir-test --machine-type n1-standard-2 --network net-10-10 --maintenance-policy "MIGRATE" --scopes "https://www.googleapis.com/auth/devstorage.read_only" --image ubuntu-14-04 --no-address --tags "no-ip" --metadata-from-file sshKeys=~/.ssh/id_rsa.pub
+scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o CheckHostIP=no -r $FILE "${_USER}@${INSTANCE_IP}:${DESTINATION}"
+ssh -o UserKnownHostsFile=/dev/null -o CheckHostIP=no -o StrictHostKeyChecking=no -o ServerAliveCountMax=5 ubuntu@10.10.0.31 
